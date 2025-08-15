@@ -26,14 +26,18 @@
 	"kv_namespaces": [
 		{
 			"binding": "PROCESSED_EVENTS",
-			"id": "your-kv-namespace-id",
-			"preview_id": "your-preview-kv-namespace-id"
+			"id": "78e463be2e6846d68afcde0fe204ccdf",
+			"preview_id": "78e463be2e6846d68afcde0fe204ccdf"
 		}
 	],
 	"triggers": {
-		"crons": ["*/5 * * * *"]
+		"crons": [
+			"*/5 * * * *"
+		]
 	},
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
 	"observability": {
 		"enabled": true
 	}
