@@ -1,0 +1,23 @@
+{
+	"name": "security-notification-app",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types",
+		"test": "vitest run",
+		"test:watch": "vitest --watch",
+		"test:coverage": "vitest run --coverage"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.5.41",
+		"@cloudflare/workers-types": "^4.20241127.0",
+		"@types/node": "^20.14.0",
+		"@vitest/coverage-istanbul": "^2.1.9",
+		"typescript": "^5.5.2",
+		"vitest": "^2.1.8",
+		"wrangler": "^4.30.0"
+	}
+}

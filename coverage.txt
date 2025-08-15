@@ -1,0 +1,63 @@
+
+> security-notification-app@0.0.0 test:coverage
+> vitest run --coverage
+
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mC:/Users/mtama/node/security-notification-app[39m
+      [2mCoverage enabled with [22m[33mistanbul[39m
+
+Using vars defined in .dev.vars
+[vpw:inf] Starting isolated runtimes for vitest.config.ts...
+ [32m✓[39m src/index.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 474[2mms[22m[39m
+ [31m❯[39m src/notification-manager.test.ts [2m([22m[2m13 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[33m 499[2mms[22m[39m
+[31m   [31m×[31m NotificationManager[2m > [22mshould check and notify security events[90m 20[2mms[22m[31m[39m
+[31m     → expected "spy" to be called with arguments: [ 'event:event-1', Any<String>, …(1) ][90m
+
+Received: 
+
+[31m[90m
+
+Number of calls: [1m0[22m
+[31m[39m
+[31m   [31m×[31m NotificationManager[2m > [22mshould filter security events by action type[90m 21[2mms[22m[31m[39m
+[31m     → expected "spy" to be called 2 times, but got 0 times[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 2 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/notification-manager.test.ts[2m > [22mNotificationManager[2m > [22mshould check and notify security events
+[31m[1mAssertionError[22m: expected "spy" to be called with arguments: [ 'event:event-1', Any<String>, …(1) ][90m
+
+Received: 
+
+[31m[90m
+
+Number of calls: [1m0[22m
+[31m[39m
+[36m [2m❯[22m src/notification-manager.test.ts:[2m303:84[22m[39m
+    [90m301| [39m   url[33m:[39m [32m'https://example.com/disabled'[39m[33m,[39m
+    [90m302| [39m   enabled[33m:[39m [35mfalse[39m[33m,[39m
+    [90m303| [39m   createdAt[33m:[39m [35mnew[39m [33mDate[39m()[33m.[39m[34mtoISOString[39m()
+    [90m   | [39m                                                                                   [31m^[39m
+    [90m304| [39m  }[33m;[39m
+    [90m305| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m src/notification-manager.test.ts[2m > [22mNotificationManager[2m > [22mshould filter security events by action type
+[31m[1mAssertionError[22m: expected "spy" to be called 2 times, but got 0 times[39m
+[36m [2m❯[22m src/notification-manager.test.ts:[2m412:84[22m[39m
+    [90m413| [39m   })[33m,[39m { status[33m:[39m [34m200[39m }))[33m;[39m
+    [90m414| [39m
+    [90m415| [39m  [90m// Mock KV to indicate event is already processed[39m
+    [90m   | [39m         [31m^[39m
+    [90m416| [39m  env[33m.[39m[33mPROCESSED_EVENTS[39m[33m.[39m[35mget[39m [33m=[39m vi[33m.[39m[34mfn[39m()[33m.[39m[34mmockResolvedValue[39m([32m'already-proces[39m…
+    [90m417| [39m  env[33m.[39m[33mPROCESSED_EVENTS[39m[33m.[39mput [33m=[39m vi[33m.[39m[34mfn[39m()[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m18 passed[39m[22m[90m (20)[39m
+[2m   Start at [22m 01:47:42
+[2m   Duration [22m 3.31s[2m (transform 368ms, setup 76ms, collect 672ms, tests 973ms, environment 0ms, prepare 1.06s)[22m
+
+[vpw:dbg] Shutting down runtimes...
