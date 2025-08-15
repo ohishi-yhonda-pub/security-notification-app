@@ -1,4 +1,4 @@
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject, WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
 
 interface NotificationEndpoint {
 	id: string;
@@ -97,12 +97,9 @@ export class NotificationManager extends DurableObject<Env> {
 
 		const data = await response.json() as any;
 		
+		const allowedActions = ['block', 'challenge', 'jschallenge'];
 		return data.result
-			.filter((event: any) => 
-				event.action === 'block' || 
-				event.action === 'challenge' || 
-				event.action === 'jschallenge'
-			)
+			.filter((event: any) => allowedActions.includes(event.action))
 			.map((event: any) => ({
 				id: event.ray_id,
 				timestamp: event.occurred_at,
@@ -209,8 +206,81 @@ export class NotificationManager extends DurableObject<Env> {
 }
 
 
-export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export default class SecurityNotificationWorker extends WorkerEntrypoint<Env> {
+	// RPC経由で呼び出し可能なメソッド
+	async checkSecurityEvents(): Promise<{ success: boolean; message: string }> {
+		const notificationManager = this.env.NOTIFICATION_MANAGER.get(
+			this.env.NOTIFICATION_MANAGER.idFromName("global")
+		);
+		await notificationManager.checkAndNotifySecurityEvents();
+		return { success: true, message: 'Security events checked via RPC' };
+	}
+
+	async getEndpointsList(): Promise<NotificationEndpoint[]> {
+		const notificationManager = this.env.NOTIFICATION_MANAGER.get(
+			this.env.NOTIFICATION_MANAGER.idFromName("global")
+		);
+		return await notificationManager.getEndpoints();
+	}
+
+	// エンドポイントを追加
+	async addEndpoint(endpoint: Omit<NotificationEndpoint, 'id' | 'createdAt'>): Promise<NotificationEndpoint> {
+		const notificationManager = this.env.NOTIFICATION_MANAGER.get(
+			this.env.NOTIFICATION_MANAGER.idFromName("global")
+		);
+		const newEndpoint: NotificationEndpoint = {
+			...endpoint,
+			id: crypto.randomUUID(),
+			createdAt: new Date().toISOString()
+		};
+		await notificationManager.addEndpoint(newEndpoint);
+		return newEndpoint;
+	}
+
+	// エンドポイントを削除
+	async removeEndpoint(id: string): Promise<{ success: boolean }> {
+		const notificationManager = this.env.NOTIFICATION_MANAGER.get(
+			this.env.NOTIFICATION_MANAGER.idFromName("global")
+		);
+		await notificationManager.removeEndpoint(id);
+		return { success: true };
+	}
+
+	// エンドポイントの有効/無効を切り替え
+	async toggleEndpoint(id: string, enabled: boolean): Promise<{ success: boolean }> {
+		const notificationManager = this.env.NOTIFICATION_MANAGER.get(
+			this.env.NOTIFICATION_MANAGER.idFromName("global")
+		);
+		await notificationManager.toggleEndpoint(id, enabled);
+		return { success: true };
+	}
+
+	// 特定のセキュリティイベントを通知（テスト用）
+	async sendTestNotification(event: SecurityEvent): Promise<{ success: boolean; notifiedEndpoints: number }> {
+		const notificationManager = this.env.NOTIFICATION_MANAGER.get(
+			this.env.NOTIFICATION_MANAGER.idFromName("global")
+		);
+		await notificationManager.sendNotifications(event);
+		const endpoints = await notificationManager.getEndpoints();
+		const activeEndpoints = endpoints.filter(ep => ep.enabled);
+		return { success: true, notifiedEndpoints: activeEndpoints.length };
+	}
+
+	// セキュリティイベントの履歴を取得（KVから）
+	async getProcessedEvents(limit: number = 100): Promise<Array<{ key: string; event: SecurityEvent }>> {
+		const list = await this.env.PROCESSED_EVENTS.list({ limit });
+		const events = await Promise.all(
+			list.keys.map(async (key) => {
+				const eventData = await this.env.PROCESSED_EVENTS.get(key.name);
+				return eventData ? { key: key.name, event: JSON.parse(eventData) as SecurityEvent } : null;
+			})
+		);
+		return events.filter((e): e is { key: string; event: SecurityEvent } => e !== null);
+	}
+
+	async fetch(request: Request): Promise<Response> {
+		const env = this.env;
+		const ctx = this.ctx;
 		const url = new URL(request.url);
 		const notificationManager = env.NOTIFICATION_MANAGER.get(env.NOTIFICATION_MANAGER.idFromName("global"));
 
@@ -248,10 +318,11 @@ export default {
 		}
 
 		return new Response('Security Notification API', { status: 200 });
-	},
+	}
 
-	async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+	async scheduled(controller: ScheduledController): Promise<void> {
+		const env = this.env;
 		const notificationManager = env.NOTIFICATION_MANAGER.get(env.NOTIFICATION_MANAGER.idFromName("global"));
 		await notificationManager.checkAndNotifySecurityEvents();
 	}
-} satisfies ExportedHandler<Env>;
+}

@@ -6,7 +6,12 @@ export default defineWorkersConfig({
 		globals: true,
 		poolOptions: {
 			workers: {
-				wrangler: { configPath: './wrangler.jsonc' }
+				wrangler: { configPath: './wrangler.jsonc' },
+				miniflare: {
+					// Required to use `SELF.scheduled()`. This is an experimental
+					// compatibility flag, and cannot be enabled in production.
+					compatibilityFlags: ["service_binding_extra_handlers"],
+				},
 			}
 		},
 		coverage: {
