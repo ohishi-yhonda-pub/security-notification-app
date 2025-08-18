@@ -240,7 +240,7 @@ describe('Edge Cases and Error Handling', () => {
 			
 			// Verify console.log was called with email notification
 			expect(consoleSpy).toHaveBeenCalledWith(
-				`Email notification to test@example.com for event test-email-event`
+				`Email notification to test@example.com for 1 events`
 			);
 
 			consoleSpy.mockRestore();
@@ -280,10 +280,85 @@ describe('Edge Cases and Error Handling', () => {
 			const result = await worker.sendTestNotification(testEvent);
 			expect(result.success).toBe(true);
 			
-			// Check that user agent is truncated in the message
+			// Check that the batch message was sent successfully
 			const callArgs = (global.fetch as any).mock.calls[0];
 			const body = JSON.parse(callArgs[1].body);
-			expect(body.blocks[2].elements[0].text).toContain('...');
+			expect(body.text).toContain('1 Security Events Detected');
+			expect(body.blocks[0].text.text).toContain('1 Security Events Detected');
+		});
+	});
+
+	describe('Batch notification handling', () => {
+		it('should handle more than 5 events in slack batch message', async () => {
+			// Add slack endpoint
+			const endpoint = await worker.addEndpoint({
+				name: 'Slack Batch Test',
+				type: 'slack',
+				url: 'https://hooks.slack.com/batch-test',
+				enabled: true
+			});
+
+			// Mock successful slack response
+			(global.fetch as any).mockResolvedValueOnce(
+				new Response('ok', { status: 200 })
+			);
+
+			// Create 7 events to trigger the "more events" message
+			const events = Array.from({ length: 7 }, (_, i) => ({
+				id: `test-event-${i}`,
+				timestamp: new Date().toISOString(),
+				action: i % 2 === 0 ? 'block' : 'challenge',
+				clientIP: `1.2.3.${i}`,
+				country: 'US',
+				method: 'GET',
+				host: 'example.com',
+				uri: `/test-${i}`,
+				userAgent: 'Test User Agent',
+				ruleId: `rule-${i}`,
+				ruleName: `Test Rule ${i}`
+			}));
+
+			// Send notifications for all events
+			const notificationManager = testEnv.NOTIFICATION_MANAGER.get(
+				testEnv.NOTIFICATION_MANAGER.idFromName("global")
+			);
+			await notificationManager.sendNotificationsBatch(events);
+
+			// Check that the message includes "and 2 more events"
+			const callArgs = (global.fetch as any).mock.calls[0];
+			const body = JSON.parse(callArgs[1].body);
+			expect(body.text).toContain('7 Security Events Detected');
+			
+			// Find the context block with "more events" text
+			const contextBlock = body.blocks.find((block: any) => 
+				block.type === 'context' && 
+				block.elements?.[0]?.text?.includes('more events')
+			);
+			expect(contextBlock).toBeDefined();
+			expect(contextBlock.elements[0].text).toContain('and 2 more events');
+		});
+
+		it('should handle empty events array gracefully', async () => {
+			// Add slack endpoint
+			const endpoint = await worker.addEndpoint({
+				name: 'Slack Empty Test',
+				type: 'slack',
+				url: 'https://hooks.slack.com/empty-test',
+				enabled: true
+			});
+
+			// Send notifications with empty events array
+			const notificationManager = testEnv.NOTIFICATION_MANAGER.get(
+				testEnv.NOTIFICATION_MANAGER.idFromName("global")
+			);
+			
+			// Should not make any fetch calls
+			const fetchSpy = vi.spyOn(global, 'fetch');
+			await notificationManager.sendNotificationsBatch([]);
+			
+			// Verify no fetch calls were made
+			expect(fetchSpy).not.toHaveBeenCalled();
+			fetchSpy.mockRestore();
 		});
 	});
 

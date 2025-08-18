@@ -58,12 +58,25 @@ export class NotificationManager extends DurableObject<Env> {
 			
 			const events = await this.fetchSecurityEvents(fiveMinutesAgo, now);
 			
+			// Collect unprocessed events
+			const unprocessedEvents: SecurityEvent[] = [];
+			
 			for (const event of events) {
 				const eventKey = `event:${event.id}`;
 				const processed = await this.env.PROCESSED_EVENTS.get(eventKey);
 				
 				if (!processed) {
-					await this.sendNotifications(event);
+					unprocessedEvents.push(event);
+				}
+			}
+			
+			// Send all unprocessed events in a single batch
+			if (unprocessedEvents.length > 0) {
+				await this.sendNotificationsBatch(unprocessedEvents);
+				
+				// Mark all events as processed
+				for (const event of unprocessedEvents) {
+					const eventKey = `event:${event.id}`;
 					await this.env.PROCESSED_EVENTS.put(eventKey, JSON.stringify(event), {
 						expirationTtl: 86400 // 24 hours
 					});
@@ -119,78 +132,152 @@ export class NotificationManager extends DurableObject<Env> {
 		const endpoints = await this.getEndpoints();
 		const activeEndpoints = endpoints.filter(ep => ep.enabled);
 
-		const promises = activeEndpoints.map(endpoint => 
-			this.sendToEndpoint(endpoint, event).catch(err => 
-				console.error(`Failed to send to ${endpoint.name}:`, err)
-			)
-		);
+		await this.sendToEndpointsBatch(activeEndpoints, [event]);
+	}
+
+	async sendNotificationsBatch(events: SecurityEvent[]): Promise<void> {
+		const endpoints = await this.getEndpoints();
+		const activeEndpoints = endpoints.filter(ep => ep.enabled);
+
+		await this.sendToEndpointsBatch(activeEndpoints, events);
+	}
+
+	private async sendToEndpointsBatch(endpoints: NotificationEndpoint[], events: SecurityEvent[]): Promise<void> {
+		if (events.length === 0) return;
+
+		// Send to each endpoint with all events in a single notification
+		const promises = endpoints.map(endpoint => {
+			switch (endpoint.type) {
+				case 'webhook':
+					return this.sendWebhookBatch(endpoint.url!, events).catch(err =>
+						console.error(`Failed to send batch to webhook ${endpoint.name}:`, err)
+					);
+				case 'slack':
+					return this.sendSlackBatch(endpoint.url!, events).catch(err =>
+						console.error(`Failed to send batch to Slack ${endpoint.name}:`, err)
+					);
+				case 'email':
+					// Email implementation would go here
+					console.log(`Email notification to ${endpoint.email} for ${events.length} events`);
+					return Promise.resolve();
+			}
+		});
 
 		await Promise.all(promises);
 	}
 
-	private async sendToEndpoint(endpoint: NotificationEndpoint, event: SecurityEvent): Promise<void> {
-		switch (endpoint.type) {
-			case 'webhook':
-				await this.sendWebhook(endpoint.url!, event);
-				break;
-			case 'slack':
-				await this.sendSlack(endpoint.url!, event);
-				break;
-			case 'email':
-				// Email implementation would go here
-				console.log(`Email notification to ${endpoint.email} for event ${event.id}`);
-				break;
-		}
-	}
+	// 個別送信用メソッド（現在は未使用、バッチ送信を推奨）
+	// private async sendToEndpoint(endpoint: NotificationEndpoint, event: SecurityEvent): Promise<void> {
+	// 	switch (endpoint.type) {
+	// 		case 'webhook':
+	// 			await this.sendWebhook(endpoint.url!, event);
+	// 			break;
+	// 		case 'slack':
+	// 			await this.sendSlack(endpoint.url!, event);
+	// 			break;
+	// 		case 'email':
+	// 			// Email implementation would go here
+	// 			console.log(`Email notification to ${endpoint.email} for event ${event.id}`);
+	// 			break;
+	// 	}
+	// }
 
-	private async sendWebhook(url: string, event: SecurityEvent): Promise<void> {
+	// private async sendWebhook(url: string, event: SecurityEvent): Promise<void> {
+	// 	const response = await fetch(url, {
+	// 		method: 'POST',
+	// 		headers: { 'Content-Type': 'application/json' },
+	// 		body: JSON.stringify({
+	// 			type: 'cloudflare_security_event',
+	// 			event: event,
+	// 			timestamp: new Date().toISOString()
+	// 		})
+	// 	});
+
+	// 	if (!response.ok) {
+	// 		throw new Error(`Webhook failed: ${response.status}`);
+	// 	}
+	// }
+
+	private async sendWebhookBatch(url: string, events: SecurityEvent[]): Promise<void> {
 		const response = await fetch(url, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				type: 'cloudflare_security_event',
-				event: event,
+				type: 'cloudflare_security_events_batch',
+				events: events,
+				count: events.length,
 				timestamp: new Date().toISOString()
 			})
 		});
 
 		if (!response.ok) {
-			throw new Error(`Webhook failed: ${response.status}`);
+			throw new Error(`Webhook batch failed: ${response.status}`);
 		}
 	}
 
-	private async sendSlack(url: string, event: SecurityEvent): Promise<void> {
-		const message = {
-			text: `🚨 Security Alert: ${event.action.toUpperCase()}`,
-			blocks: [
-				{
-					type: 'section',
-					text: {
-						type: 'mrkdwn',
-						text: `*Security Event Detected*\n*Action:* ${event.action}\n*Time:* ${new Date(event.timestamp).toLocaleString()}`
-					}
-				},
-				{
-					type: 'section',
-					fields: [
-						{ type: 'mrkdwn', text: `*Client IP:*\n${event.clientIP}` },
-						{ type: 'mrkdwn', text: `*Country:*\n${event.country}` },
-						{ type: 'mrkdwn', text: `*Method:*\n${event.method}` },
-						{ type: 'mrkdwn', text: `*Host:*\n${event.host}` },
-						{ type: 'mrkdwn', text: `*URI:*\n${event.uri}` },
-						{ type: 'mrkdwn', text: `*Rule:*\n${event.ruleName}` },
-					]
-				},
-				{
-					type: 'context',
-					elements: [
-						{
-							type: 'mrkdwn',
-							text: `Ray ID: ${event.id} | User Agent: ${event.userAgent.substring(0, 50)}...`
-						}
-					]
+	private async sendSlackBatch(url: string, events: SecurityEvent[]): Promise<void> {
+		const eventsSummary = events.reduce((acc, event) => {
+			acc[event.action] = (acc[event.action] || 0) + 1;
+			return acc;
+		}, {} as Record<string, number>);
+
+		const summaryText = Object.entries(eventsSummary)
+			.map(([action, count]) => `${action.toUpperCase()}: ${count}`)
+			.join(', ');
+
+		const blocks: any[] = [
+			{
+				type: 'header',
+				text: {
+					type: 'plain_text',
+					text: `🚨 ${events.length} Security Events Detected`
 				}
-			]
+			},
+			{
+				type: 'section',
+				text: {
+					type: 'mrkdwn',
+					text: `*Summary:* ${summaryText}\n*Time Range:* ${new Date(events[0].timestamp).toLocaleString()} - ${new Date(events[events.length - 1].timestamp).toLocaleString()}`
+				}
+			}
+		];
+
+		// Add details for first 5 events
+		const displayEvents = events.slice(0, 5);
+		displayEvents.forEach((event, index) => {
+			blocks.push({
+				type: 'divider'
+			});
+			blocks.push({
+				type: 'section',
+				text: {
+					type: 'mrkdwn',
+					text: `*Event ${index + 1}:* ${event.action} from ${event.clientIP} (${event.country})`
+				},
+				fields: [
+					{ type: 'mrkdwn', text: `*Host:* ${event.host}` },
+					{ type: 'mrkdwn', text: `*URI:* ${event.uri}` },
+					{ type: 'mrkdwn', text: `*Rule:* ${event.ruleName}` },
+					{ type: 'mrkdwn', text: `*Time:* ${new Date(event.timestamp).toLocaleString()}` }
+				]
+			});
+		});
+
+		if (events.length > 5) {
+			blocks.push({
+				type: 'context',
+				elements: [
+					{
+						type: 'mrkdwn',
+						text: `... and ${events.length - 5} more events`
+					}
+				]
+			});
+		}
+
+		const message = {
+			text: `🚨 ${events.length} Security Events Detected`,
+			blocks: blocks
 		};
 
 		const response = await fetch(url, {
@@ -200,9 +287,55 @@ export class NotificationManager extends DurableObject<Env> {
 		});
 
 		if (!response.ok) {
-			throw new Error(`Slack webhook failed: ${response.status}`);
+			throw new Error(`Slack webhook batch failed: ${response.status}`);
 		}
 	}
+
+	// 個別送信用メソッド（現在は未使用、バッチ送信を推奨）
+	// private async sendSlack(url: string, event: SecurityEvent): Promise<void> {
+	// 	const message = {
+	// 		text: `🚨 Security Alert: ${event.action.toUpperCase()}`,
+	// 		blocks: [
+	// 			{
+	// 				type: 'section',
+	// 				text: {
+	// 					type: 'mrkdwn',
+	// 					text: `*Security Event Detected*\n*Action:* ${event.action}\n*Time:* ${new Date(event.timestamp).toLocaleString()}`
+	// 				}
+	// 			},
+	// 			{
+	// 				type: 'section',
+	// 				fields: [
+	// 					{ type: 'mrkdwn', text: `*Client IP:*\n${event.clientIP}` },
+	// 					{ type: 'mrkdwn', text: `*Country:*\n${event.country}` },
+	// 					{ type: 'mrkdwn', text: `*Method:*\n${event.method}` },
+	// 					{ type: 'mrkdwn', text: `*Host:*\n${event.host}` },
+	// 					{ type: 'mrkdwn', text: `*URI:*\n${event.uri}` },
+	// 					{ type: 'mrkdwn', text: `*Rule:*\n${event.ruleName}` },
+	// 				]
+	// 			},
+	// 			{
+	// 				type: 'context',
+	// 				elements: [
+	// 					{
+	// 						type: 'mrkdwn',
+	// 						text: `Ray ID: ${event.id} | User Agent: ${event.userAgent.substring(0, 50)}...`
+	// 					}
+	// 				]
+	// 			}
+	// 		]
+	// 	};
+
+	// 	const response = await fetch(url, {
+	// 		method: 'POST',
+	// 		headers: { 'Content-Type': 'application/json' },
+	// 		body: JSON.stringify(message)
+	// 	});
+
+	// 	if (!response.ok) {
+	// 		throw new Error(`Slack webhook failed: ${response.status}`);
+	// 	}
+	// }
 }
 
 
